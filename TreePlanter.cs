@@ -3,10 +3,11 @@
 using System.Collections.Generic;
 using Oxide.Core.Plugins;
 using UnityEngine;
+using System.Linq;
 
 namespace Oxide.Plugins
 {
-    [Info("Tree Planter", "Bazz3l", "1.0.1")]
+    [Info("Tree Planter", "Bazz3l", "1.0.3")]
     [Description("Buy and plant trees where you are looking.")]
     class TreePlanter : RustPlugin
     {
@@ -45,6 +46,7 @@ namespace Oxide.Plugins
                 {"Planted", "<color=#DC143C>Tree Planter</color>: You planted a tree."},
                 {"InvalidType", "<color=#DC143C>Tree Planter</color>: Invalid tree type."},
                 {"ListTypes", "<color=#DC143C>Tree Planter</color>: /tree <type>\n{0}"},
+                {"Type", "Type {0}, Price {1}"},
                 {"NoPermission", "<color=#DC143C>Tree Planter</color>: You do not have permission."},
             }, this);
         }
@@ -115,7 +117,8 @@ namespace Oxide.Plugins
 
             if (args.Length < 1)
             {
-                player.ChatMessage(Lang("ListTypes", player.UserIDString, string.Join("\n", config.SpawnItems.Keys)));
+                string items = string.Join("\n", config.SpawnItems.Select(x => Lang("Type", player.UserIDString, x.Key, x.Value.Cost)));
+                player.ChatMessage(Lang("ListTypes", player.UserIDString, items));
                 return;
             }
 
@@ -156,3 +159,4 @@ namespace Oxide.Plugins
         #endregion
     }
 }
+

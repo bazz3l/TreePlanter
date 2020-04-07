@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Tree Planter", "Bazz3l", "1.0.6")]
+    [Info("Tree Planter", "Bazz3l", "1.0.7")]
     [Description("Buy and plant trees where you are looking.")]
     class TreePlanter : RustPlugin
     {
@@ -171,15 +171,15 @@ namespace Oxide.Plugins
         {
             if (config.UseServerRewards && ServerRewards?.Call<int>("CheckPoints", player.userID) < cost)
             {
-                return false;
+                return true;
             }
 
             if (config.UseEconomics && Economics?.Call<double>("Balance", player.userID) < (double) cost)
             {
-                return false;
+                return true;
             }
 
-            return true;
+            return false;
         }
         #endregion
 
@@ -204,7 +204,7 @@ namespace Oxide.Plugins
 
                 foreach (SpawnItem item in config.Items)
                 {
-                    sb.Append($"\n {item.Name}");
+                    sb.Append($"\n{item.Name}");
                 }
 
                 player.ChatMessage(Lang("ListTypes", player.UserIDString, sb.ToString()));

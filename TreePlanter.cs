@@ -1,200 +1,175 @@
 using System.Collections.Generic;
 using System.Text;
-using Oxide.Core.Plugins;
-using Oxide.Core;
 using UnityEngine;
+using Oxide.Core.Plugins;
 
 namespace Oxide.Plugins
 {
-    [Info("Tree Planter", "Bazz3l", "1.0.7")]
-    [Description("Buy and plant trees where you are looking.")]
+    [Info("Tree Planter", "Bazz3l", "1.0.8")]
+    [Description("Buy and plant trees.")]
     class TreePlanter : RustPlugin
     {
         [PluginReference]
         Plugin ServerRewards, Economics;
 
         #region Fields
-        readonly int BlockedLayers = LayerMask.GetMask("Construction", "World", "Deployable", "Default");
-        readonly int AllowedLayers = LayerMask.GetMask("Terrain");
-        const string Perm = "treeplanter.use";
-        bool IsReady;
+        const string permUse = "treeplanter.use";
+        ConfigData config;
         #endregion
 
         #region Config
-        PluginConfig config;
-        PluginConfig GetDefaultConfig()
+        ConfigData GetDefaultConfig()
         {
-            return new PluginConfig
-            {
-                Items = new List<SpawnItem>
-                {
-                    // Swamp
-                    new SpawnItem("swamp-a", "assets/bundled/prefabs/autospawn/resource/swamp-trees/swamp_tree_a.prefab"),
-                    new SpawnItem("swamp-b", "assets/bundled/prefabs/autospawn/resource/swamp-trees/swamp_tree_b.prefab"),
-                    new SpawnItem("swamp-c", "assets/bundled/prefabs/autospawn/resource/swamp-trees/swamp_tree_c.prefab"),
-
-                    // Douglas
-                    new SpawnItem("douglas-a", "assets/bundled/prefabs/autospawn/resource/v2_arctic_forest/douglas_fir_a_snow.prefab"),
-                    new SpawnItem("douglas-b", "assets/bundled/prefabs/autospawn/resource/v2_arctic_forest/douglas_fir_b_snow.prefab"),
-                    new SpawnItem("douglas-c", "assets/bundled/prefabs/autospawn/resource/v2_arctic_forest/douglas_fir_c_snow.prefab"),
-
-                    // Pine
-                    new SpawnItem("pine-a", "assets/bundled/prefabs/autospawn/resource/v2_arctic_forest_snow/pine_a_snow.prefab"),
-                    new SpawnItem("pine-b", "assets/bundled/prefabs/autospawn/resource/v2_arctic_forest_snow/pine_b snow.prefab"),
-                    new SpawnItem("pine-c", "assets/bundled/prefabs/autospawn/resource/v2_arctic_forest_snow/pine_c_snow.prefab"),
-
-                    // Birch
-                    new SpawnItem("birch-small", "assets/bundled/prefabs/autospawn/resource/v2_temp_forest/birch_small_temp.prefab"),
-                    new SpawnItem("birch-med", "assets/bundled/prefabs/autospawn/resource/v2_temp_forest/birch_medium_temp.prefab"),
-                    new SpawnItem("birch-tall", "assets/bundled/prefabs/autospawn/resource/v2_temp_forest/birch_large_temp.prefab"),
-
-                    // Oak
-                    new SpawnItem("oak-a", "assets/bundled/prefabs/autospawn/resource/v2_temp_field_large/oak_a.prefab"),
-                    new SpawnItem("oak-b", "assets/bundled/prefabs/autospawn/resource/v2_temp_field_large/oak_b.prefab"),
-                    new SpawnItem("oak-c", "assets/bundled/prefabs/autospawn/resource/v2_temp_field_large/oak_c.prefab"),
-
-                    // Palm
-                    new SpawnItem("palm-small", "assets/bundled/prefabs/autospawn/resource/v2_arid_forest/palm_tree_small_c_entity.prefab"),
-                    new SpawnItem("palm-med", "assets/bundled/prefabs/autospawn/resource/v2_arid_forest/palm_tree_med_a_entity.prefab"),
-                    new SpawnItem("palm-tall", "assets/bundled/prefabs/autospawn/resource/v2_arid_forest/palm_tree_tall_a_entity.prefab")
-                },
+            return new ConfigData {
                 UseServerRewards = true,
-                UseEconomics     = false
+                UseEconomics = false,
+                UseCurrency = false,
+                CurrencyItemID = -932201673,
+                Items = new List<TreeConfig> {
+                    new TreeConfig("oak", new List<string> {
+                        "assets/bundled/prefabs/autospawn/resource/v2_temp_field_large/oak_a.prefab",
+                        "assets/bundled/prefabs/autospawn/resource/v2_temp_field_large/oak_b.prefab",
+                        "assets/bundled/prefabs/autospawn/resource/v2_temp_field_large/oak_c.prefab"
+                    }),
+                    new TreeConfig("birch", new List<string> {
+                        "assets/bundled/prefabs/autospawn/resource/v2_temp_forest/birch_small_temp.prefab",
+                        "assets/bundled/prefabs/autospawn/resource/v2_temp_forest/birch_medium_temp.prefab",
+                        "assets/bundled/prefabs/autospawn/resource/v2_temp_forest/birch_large_temp.prefab"
+                    }),
+                    new TreeConfig("douglas", new List<string> {
+                        "assets/bundled/prefabs/autospawn/resource/v2_arctic_forest/douglas_fir_a_snow.prefab",
+                        "assets/bundled/prefabs/autospawn/resource/v2_arctic_forest/douglas_fir_b_snow.prefab",
+                        "assets/bundled/prefabs/autospawn/resource/v2_arctic_forest/douglas_fir_c_snow.prefab"
+                    }),
+                    new TreeConfig("swamp", new List<string> {
+                        "assets/bundled/prefabs/autospawn/resource/swamp-trees/swamp_tree_a.prefab",
+                        "assets/bundled/prefabs/autospawn/resource/swamp-trees/swamp_tree_b.prefab",
+                        "assets/bundled/prefabs/autospawn/resource/swamp-trees/swamp_tree_c.prefab"
+                    }),
+                    new TreeConfig("palm", new List<string> {
+                        "assets/bundled/prefabs/autospawn/resource/v2_arid_forest/palm_tree_small_c_entity.prefab",
+                        "assets/bundled/prefabs/autospawn/resource/v2_arid_forest/palm_tree_med_a_entity.prefab",
+                        "assets/bundled/prefabs/autospawn/resource/v2_arid_forest/palm_tree_tall_a_entity.prefab"
+                    }),
+                    new TreeConfig("pine", new List<string> {
+                        "assets/bundled/prefabs/autospawn/resource/v2_arctic_forest_snow/pine_a_snow.prefab",
+                        "assets/bundled/prefabs/autospawn/resource/v2_arctic_forest_snow/pine_b snow.prefab",
+                        "assets/bundled/prefabs/autospawn/resource/v2_arctic_forest_snow/pine_c_snow.prefab"
+                    })
+                }
             };
         }
 
-        class PluginConfig
+        class ConfigData
         {
-            public List<SpawnItem> Items;
             public bool UseServerRewards;
             public bool UseEconomics;
-            public SpawnItem FindByName(string Name) => Items.Find(x => x.Name == Name);
+            public bool UseCurrency;
+            public int CurrencyItemID;
+            public List<TreeConfig> Items;
+
+            public TreeConfig FindItemByName(string name) => Items.Find(x => x.name == name);
         }
 
-        class SpawnItem
+        class TreeConfig
         {
-            public string Name;
-            public string Prefab;
-            public int Cost = 10;
-            public SpawnItem(string name, string prefab)
+            public string name;
+            public int cost = 10;
+            public int amount = 1;
+            public List<string> prefabs;
+
+            public TreeConfig(string name, List<string> prefabs)
             {
-                Name = name;
-                Prefab = prefab;
+                this.name = name;
+                this.prefabs = prefabs;
             }
         }
         #endregion
 
         #region Oxide
+        protected override void LoadDefaultConfig() => Config.WriteObject(GetDefaultConfig(), true);
+
         protected override void LoadDefaultMessages()
         {
             lang.RegisterMessages(new Dictionary<string, string> {
-                {"BuildBlocked", "<color=#DC143C>Tree Planter</color>: You are currently building Blocked."},
-                {"NoTerrain", "<color=#DC143C>Tree Planter</color>: You are not looking at terrain."},
-                {"NoPoints", "<color=#DC143C>Tree Planter</color>: You do not have enough points."},
-                {"Planted", "<color=#DC143C>Tree Planter</color>: You planted a tree."},
-                {"InvalidType", "<color=#DC143C>Tree Planter</color>: Invalid tree type."},
-                {"ListTypes", "<color=#DC143C>Tree Planter</color>: /tree <type>{0}"},
-                {"Type", "Type: {0}, Price: ({1})RP"},
-                {"NoPermission", "<color=#DC143C>Tree Planter</color>: You do not have permission."},
+                {"Prefix", "<color=#DC143C>Tree Planter</color>:"},
+                {"NoPermission", "No permission"},
+                {"Balance", "You do not have enough for that."},
+                {"Planted", "You planted a tree."},
+                {"Authed", "You must have build privlage."},
+                {"Planter", "Can not be placed in a planter."},
+                {"Given", "You received {0} ({1})."},
+                {"Error", "Something went wrong."},
+                {"Invalid", "Invalid type."},
             }, this);
         }
 
-        protected override void LoadDefaultConfig() => Config.WriteObject(GetDefaultConfig(), true);
-
         void OnServerInitialized()
         {
-            if (config.UseEconomics && Economics == null || config.UseServerRewards && ServerRewards == null)
-            {
-                Interface.Oxide.LogDebug("ServerRewards/Economics is required.");
-                return;
-            }
-
-            IsReady = true;
+            permission.RegisterPermission(permUse, this);
         }
 
         void Init()
         {
-            permission.RegisterPermission(Perm, this);
-
-            config = Config.ReadObject<PluginConfig>();
-        }
-        #endregion
-
-        #region Core
-        bool IsValidSpawn(BasePlayer player, out Vector3 position)
-        {
-            position = Vector3.zero;
-
-            RaycastHit hit;
-
-            if (Physics.Raycast(player.eyes.HeadRay(), out hit, 10f, BlockedLayers))
-            {
-                return false;
-            }
-
-            bool cast = Physics.Raycast(player.eyes.HeadRay(), out hit, 10f, AllowedLayers);
-
-            if (cast && hit.distance <= 5f)
-            {
-                position = hit.point;
-
-                return true;
-            }
-
-            return false;
+            config = Config.ReadObject<ConfigData>();
         }
 
-        void PlantTree(BasePlayer player, Vector3 spawnPos, string treeType, int treeCost)
+        void OnEntityBuilt(Planner plan, GameObject seed)
         {
-            BaseEntity entity = GameManager.server.CreateEntity(treeType, spawnPos, Quaternion.identity);
-            if (entity == null)
+            BasePlayer player = plan.GetOwnerPlayer();
+            if (player == null || !permission.UserHasPermission(player.UserIDString, permUse))
             {
                 return;
             }
 
-            entity.Spawn();
-
-            if (config.UseServerRewards)
+            GrowableEntity plant = seed.GetComponent<GrowableEntity>();
+            if (plant == null)
             {
-                ServerRewards?.Call<object>("TakePoints", player.userID, treeCost, null);
+                return;
             }
 
-            if (config.UseEconomics)
+            Item item = player.GetActiveItem();
+            if (item == null)
             {
-                Economics?.Call<object>("Withdraw", player.userID, (double) treeCost);
+                return;
             }
-            
-            player.ChatMessage(Lang("Planted", player.UserIDString));
+
+            TreeConfig tree = config.FindItemByName(item.name);
+            if (tree == null)
+            {
+                return;
+            }
+
+            NextTick(() => {
+                if (plant.GetParentEntity() is PlanterBox)
+                {
+                    RefundItem(player, item.name);
+
+                    plant?.Kill(BaseNetworkable.DestroyMode.None);
+
+                    player.ChatMessage(Lang("Planter", player.UserIDString));
+                    return;
+                }
+
+                if (!player.IsBuildingAuthed())
+                {
+                    RefundItem(player, item.name);
+
+                    plant?.Kill(BaseNetworkable.DestroyMode.None);
+
+                    player.ChatMessage(Lang("Authed", player.UserIDString));
+                    return;
+                }
+
+                PlantTree(player, plant, tree.prefabs.GetRandom());
+            });
         }
 
-        bool CheckBalance(BasePlayer player, int cost)
-        {
-            if (config.UseServerRewards && ServerRewards?.Call<int>("CheckPoints", player.userID) < cost)
-            {
-                return true;
-            }
-
-            if (config.UseEconomics && Economics?.Call<double>("Balance", player.userID) < (double) cost)
-            {
-                return true;
-            }
-
-            return false;
-        }
-        #endregion
-
-        #region Commands
         [ChatCommand("tree")]
         void BuyCommand(BasePlayer player, string cmd, string[] args)
         {
-            if (player == null || !IsReady)
+            if (player == null || !permission.UserHasPermission(player.UserIDString, permUse))
             {
-                return;
-            }
-
-            if (!permission.UserHasPermission(player.UserIDString, Perm))
-            {
-                player.ChatMessage(Lang("NoPermission", player.UserIDString));
                 return;
             }
 
@@ -202,44 +177,116 @@ namespace Oxide.Plugins
             {
                 StringBuilder sb = new StringBuilder();
 
-                foreach (SpawnItem item in config.Items)
+                sb.Append(Lang("Prefix", player.UserIDString));
+
+                foreach (TreeConfig tc in config.Items)
                 {
-                    sb.Append($"\n{item.Name}");
+                    sb.Append($"\n{tc.name}");
                 }
 
-                player.ChatMessage(Lang("ListTypes", player.UserIDString, sb.ToString()));
+                player.ChatMessage(sb.ToString());
                 return;
             }
 
-            if (player.IsBuildingBlocked())
+            TreeConfig tree = config.FindItemByName(args[0]);
+            if (tree == null)
             {
-                player.ChatMessage(Lang("BuildBlocked", player.UserIDString));
+                player.ChatMessage(Lang("Invalid", player.UserIDString));
                 return;
             }
 
-            Vector3 spawnPos;
-
-            if (!IsValidSpawn(player, out spawnPos))
+            if (!CheckBalance(player, tree.cost))
             {
-                player.ChatMessage(Lang("NoTerrain", player.UserIDString));
+                player.ChatMessage(Lang("Balance", player.UserIDString));
                 return;
             }
-            
-            SpawnItem spawnItem = config.FindByName(args[0]);
 
-            if (spawnItem == null)
+            Item item = CreateItem(tree.name);
+            if (item == null)
             {
-                player.ChatMessage(Lang("InvalidType", player.UserIDString));
+                player.ChatMessage(Lang("Error", player.UserIDString));
                 return;
             }
 
-            if (!CheckBalance(player, spawnItem.Cost))
+            BalanceTake(player, tree.cost);
+
+            player.GiveItem(item);
+
+            player.ChatMessage(Lang("Given", player.UserIDString, tree.amount, tree.name));
+        }
+        #endregion
+
+        #region Core
+        void PlantTree(BasePlayer player, GrowableEntity plant, string prefabName)
+        {
+            BaseEntity entity = GameManager.server.CreateEntity(prefabName, plant.transform.position, Quaternion.identity);
+            if (entity == null)
             {
-                player.ChatMessage(Lang("NoPoints", player.UserIDString));
                 return;
             }
 
-            PlantTree(player, spawnPos, spawnItem.Prefab, spawnItem.Cost);
+            entity.Spawn();
+
+            plant?.Kill(BaseNetworkable.DestroyMode.None);
+
+            player.ChatMessage(Lang("Planted", player.UserIDString));
+        }
+
+        bool CheckBalance(BasePlayer player, int cost)
+        {
+            if (config.UseServerRewards && ServerRewards?.Call<int>("CheckPoints", player.userID) >= cost)
+            {
+                return true;
+            }
+
+            if (config.UseEconomics && Economics?.Call<double>("Balance", player.userID) >= (double) cost)
+            {
+                return true;
+            }
+
+            if (config.UseCurrency && player.inventory.GetAmount(config.CurrencyItemID) >= cost)
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        void BalanceTake(BasePlayer player, int cost)
+        {
+            if (config.UseServerRewards)
+            {
+                ServerRewards?.Call<object>("TakePoints", player.userID, cost, null);
+            }
+
+            if (config.UseEconomics)
+            {
+                Economics?.Call<object>("Withdraw", player.userID, (double) cost);
+            }
+
+            if (config.UseCurrency)
+            {
+                player.inventory.Take(new List<Item>(), config.CurrencyItemID, cost);
+            }
+        }
+
+        Item CreateItem(string treeType)
+        {
+            Item item = ItemManager.CreateByName("seed.hemp", 1);
+            item.name = treeType;
+            return item;
+        }
+
+        void RefundItem(BasePlayer player, string treeType)
+        {
+            Item refundItem = CreateItem(treeType);
+            if (refundItem == null)
+            {
+                player.ChatMessage(Lang("Error", player.UserIDString));
+                return;
+            }
+
+            player.GiveItem(refundItem);
         }
         #endregion
 

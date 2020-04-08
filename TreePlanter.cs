@@ -5,7 +5,7 @@ using Oxide.Core.Plugins;
 
 namespace Oxide.Plugins
 {
-    [Info("Tree Planter", "Bazz3l", "1.0.8")]
+    [Info("Tree Planter", "Bazz3l", "1.0.9")]
     [Description("Buy and plant trees.")]
     class TreePlanter : RustPlugin
     {
@@ -99,6 +99,7 @@ namespace Oxide.Plugins
                 {"Authed", "You must have build privlage."},
                 {"Planter", "Can not be placed in a planter."},
                 {"Given", "You received {0} ({1})."},
+                {"Cost", "\n{0}, cost {1}."},
                 {"Error", "Something went wrong."},
                 {"Invalid", "Invalid type."},
             }, this);
@@ -181,7 +182,7 @@ namespace Oxide.Plugins
 
                 foreach (TreeConfig tc in config.Items)
                 {
-                    sb.Append($"\n{tc.name}");
+                    sb.Append(Lang("Cost", player.UserIDString, tc.name, tc.cost));
                 }
 
                 player.ChatMessage(sb.ToString());

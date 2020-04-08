@@ -188,7 +188,7 @@ namespace Oxide.Plugins
                 return;
             }
 
-            TreeConfig tree = config.FindItemByName(args[0]);
+            TreeConfig tree = config.FindItemByName(string.Join(" ", args));
             if (tree == null)
             {
                 player.ChatMessage(Lang("Invalid", player.UserIDString));

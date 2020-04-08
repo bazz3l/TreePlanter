@@ -5,8 +5,8 @@ using Oxide.Core.Plugins;
 
 namespace Oxide.Plugins
 {
-    [Info("Tree Planter", "Bazz3l", "1.0.9")]
-    [Description("Buy and plant trees.")]
+    [Info("Tree Planter", "Bazz3l", "1.1.0")]
+    [Description("Buy and plant trees in building authed areas using in-game currency. ")]
     class TreePlanter : RustPlugin
     {
         [PluginReference]
@@ -169,8 +169,9 @@ namespace Oxide.Plugins
         [ChatCommand("tree")]
         void BuyCommand(BasePlayer player, string cmd, string[] args)
         {
-            if (player == null || !permission.UserHasPermission(player.UserIDString, permUse))
+            if (!permission.UserHasPermission(player.UserIDString, permUse))
             {
+                player.ChatMessage(Lang("NoPermission", player.UserIDString));
                 return;
             }
 

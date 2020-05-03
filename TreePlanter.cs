@@ -6,7 +6,7 @@ using Oxide.Core.Plugins;
 namespace Oxide.Plugins
 {
     [Info("Tree Planter", "Bazz3l", "1.1.0")]
-    [Description("Buy and plant trees in building authed areas using in-game currency. ")]
+    [Description("Buy and plant trees in building authed areas using in-game currency.")]
     class TreePlanter : RustPlugin
     {
         [PluginReference]
@@ -229,7 +229,7 @@ namespace Oxide.Plugins
 
             entity.Spawn();
 
-            plant?.Kill(BaseNetworkable.DestroyMode.None);
+            plant?.Kill();
 
             player.ChatMessage(Lang("Planted", player.UserIDString));
         }
@@ -274,14 +274,17 @@ namespace Oxide.Plugins
 
         Item CreateItem(string treeType)
         {
-            Item item = ItemManager.CreateByName("seed.hemp", 1);
+            Item item = ItemManager.CreateByName("clone.hemp", 1);
             item.name = treeType;
+            item.info.stackable = 1;
+
             return item;
         }
 
         void RefundItem(BasePlayer player, string treeType)
         {
             Item refundItem = CreateItem(treeType);
+
             if (refundItem == null)
             {
                 player.ChatMessage(Lang("Error", player.UserIDString));

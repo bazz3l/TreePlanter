@@ -5,7 +5,7 @@ using Oxide.Core.Plugins;
 
 namespace Oxide.Plugins
 {
-    [Info("Tree Planter", "Bazz3l", "1.1.1")]
+    [Info("Tree Planter", "Bazz3l", "1.1.2")]
     [Description("Buy and plant trees in building authed areas using in-game currency.")]
     class TreePlanter : RustPlugin
     {
@@ -13,8 +13,8 @@ namespace Oxide.Plugins
         Plugin ServerRewards, Economics;
 
         #region Fields
-        const string permUse = "treeplanter.use";
-        ConfigData config;
+        const string _permUse = "treeplanter.use";
+        ConfigData _config;
         #endregion
 
         #region Config
@@ -24,6 +24,7 @@ namespace Oxide.Plugins
                 UseServerRewards = true,
                 UseEconomics = false,
                 UseCurrency = false,
+                OwnerOnly = false,
                 CurrencyItemID = -932201673,
                 Items = new List<TreeConfig> {
                     new TreeConfig("oak", new List<string> {
@@ -65,23 +66,24 @@ namespace Oxide.Plugins
             public bool UseServerRewards;
             public bool UseEconomics;
             public bool UseCurrency;
+            public bool OwnerOnly;
             public int CurrencyItemID;
             public List<TreeConfig> Items;
 
-            public TreeConfig FindItemByName(string name) => Items.Find(x => x.name == name);
+            public TreeConfig FindItemByName(string name) => Items.Find(x => x.Name == name);
         }
 
         class TreeConfig
         {
-            public string name;
-            public int cost = 10;
-            public int amount = 10;
-            public List<string> prefabs;
+            public string Name;
+            public int Cost = 10;
+            public int Amount = 1;
+            public List<string> Prefabs;
 
             public TreeConfig(string name, List<string> prefabs)
             {
-                this.name = name;
-                this.prefabs = prefabs;
+                Name = name;
+                Prefabs = prefabs;
             }
         }
         #endregion
@@ -107,18 +109,37 @@ namespace Oxide.Plugins
 
         void OnServerInitialized()
         {
-            permission.RegisterPermission(permUse, this);
+            permission.RegisterPermission(_permUse, this);
         }
 
         void Init()
         {
-            config = Config.ReadObject<ConfigData>();
+            _config = Config.ReadObject<ConfigData>();
+        }
+
+        object OnMeleeAttack(BasePlayer player, HitInfo info)
+        {
+            BaseEntity ent = info?.HitEntity;
+
+            if (ent == null || ent.OwnerID == 0UL || !IsTree(ent.ShortPrefabName))
+            {
+                return null;
+            }
+
+            if (_config.OwnerOnly && !IsOwner(player.userID, ent.OwnerID))
+            {
+                info.damageTypes.ScaleAll(0.0f);
+
+                return false;
+            }
+
+            return null;
         }
 
         void OnEntityBuilt(Planner plan, GameObject seed)
         {
             BasePlayer player = plan.GetOwnerPlayer();
-            if (player == null || !permission.UserHasPermission(player.UserIDString, permUse))
+            if (player == null || !permission.UserHasPermission(player.UserIDString, _permUse))
             {
                 return;
             }
@@ -135,7 +156,7 @@ namespace Oxide.Plugins
                 return;
             }
 
-            TreeConfig tree = config.FindItemByName(item.name);
+            TreeConfig tree = _config.FindItemByName(item.name);
             if (tree == null)
             {
                 return;
@@ -162,14 +183,14 @@ namespace Oxide.Plugins
                     return;
                 }
 
-                PlantTree(player, plant, tree.prefabs.GetRandom());
+                PlantTree(player, plant, tree.Prefabs.GetRandom());
             });
         }
 
         [ChatCommand("tree")]
         void BuyCommand(BasePlayer player, string cmd, string[] args)
         {
-            if (!permission.UserHasPermission(player.UserIDString, permUse))
+            if (!permission.UserHasPermission(player.UserIDString, _permUse))
             {
                 player.ChatMessage(Lang("NoPermission", player.UserIDString));
                 return;
@@ -181,40 +202,40 @@ namespace Oxide.Plugins
 
                 sb.Append(Lang("Prefix", player.UserIDString));
 
-                foreach (TreeConfig tc in config.Items)
+                foreach (TreeConfig tc in _config.Items)
                 {
-                    sb.Append(Lang("Cost", player.UserIDString, tc.name, tc.cost));
+                    sb.Append(Lang("Cost", player.UserIDString, tc.Name, tc.Cost));
                 }
 
                 player.ChatMessage(sb.ToString());
                 return;
             }
 
-            TreeConfig tree = config.FindItemByName(string.Join(" ", args));
+            TreeConfig tree = _config.FindItemByName(string.Join(" ", args));
             if (tree == null)
             {
                 player.ChatMessage(Lang("Invalid", player.UserIDString));
                 return;
             }
 
-            if (!CheckBalance(player, tree.cost))
+            if (!CheckBalance(player, tree.Cost))
             {
                 player.ChatMessage(Lang("Balance", player.UserIDString));
                 return;
             }
 
-            Item item = CreateItem(tree.name, tree.amount);
+            Item item = CreateItem(tree.Name, tree.Amount);
             if (item == null)
             {
                 player.ChatMessage(Lang("Error", player.UserIDString));
                 return;
             }
 
-            BalanceTake(player, tree.cost);
+            BalanceTake(player, tree.Cost);
 
             player.GiveItem(item);
 
-            player.ChatMessage(Lang("Given", player.UserIDString, tree.amount, tree.name));
+            player.ChatMessage(Lang("Given", player.UserIDString, tree.Amount, tree.Name));
         }
         #endregion
 
@@ -227,6 +248,7 @@ namespace Oxide.Plugins
                 return;
             }
 
+            entity.OwnerID = player.userID;
             entity.Spawn();
 
             plant?.Kill();
@@ -236,17 +258,17 @@ namespace Oxide.Plugins
 
         bool CheckBalance(BasePlayer player, int cost)
         {
-            if (config.UseServerRewards && ServerRewards?.Call<int>("CheckPoints", player.userID) >= cost)
+            if (_config.UseServerRewards && ServerRewards?.Call<int>("CheckPoints", player.userID) >= cost)
             {
                 return true;
             }
 
-            if (config.UseEconomics && Economics?.Call<double>("Balance", player.userID) >= (double) cost)
+            if (_config.UseEconomics && Economics?.Call<double>("Balance", player.userID) >= (double) cost)
             {
                 return true;
             }
 
-            if (config.UseCurrency && player.inventory.GetAmount(config.CurrencyItemID) >= cost)
+            if (_config.UseCurrency && player.inventory.GetAmount(_config.CurrencyItemID) >= cost)
             {
                 return true;
             }
@@ -256,19 +278,19 @@ namespace Oxide.Plugins
 
         void BalanceTake(BasePlayer player, int cost)
         {
-            if (config.UseServerRewards)
+            if (_config.UseServerRewards)
             {
                 ServerRewards?.Call<object>("TakePoints", player.userID, cost, null);
             }
 
-            if (config.UseEconomics)
+            if (_config.UseEconomics)
             {
                 Economics?.Call<object>("Withdraw", player.userID, (double) cost);
             }
 
-            if (config.UseCurrency)
+            if (_config.UseCurrency)
             {
-                player.inventory.Take(new List<Item>(), config.CurrencyItemID, cost);
+                player.inventory.Take(new List<Item>(), _config.CurrencyItemID, cost);
             }
         }
 
@@ -291,6 +313,26 @@ namespace Oxide.Plugins
             }
 
             player.GiveItem(refundItem);
+        }
+
+        bool IsOwner(ulong userID, ulong ownerID)
+        {
+            return userID == ownerID;
+        }
+
+        bool IsTree(string prefab)
+        {
+            if (prefab.Contains("oak_") 
+            || prefab.Contains("birch_") 
+            || prefab.Contains("douglas_") 
+            || prefab.Contains("swamp_") 
+            || prefab.Contains("palm_") 
+            || prefab.Contains("pine_"))
+            {
+                return true;
+            }
+
+            return false;
         }
         #endregion
 

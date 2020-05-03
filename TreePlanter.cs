@@ -5,7 +5,7 @@ using Oxide.Core.Plugins;
 
 namespace Oxide.Plugins
 {
-    [Info("Tree Planter", "Bazz3l", "1.1.0")]
+    [Info("Tree Planter", "Bazz3l", "1.1.1")]
     [Description("Buy and plant trees in building authed areas using in-game currency.")]
     class TreePlanter : RustPlugin
     {
@@ -75,7 +75,7 @@ namespace Oxide.Plugins
         {
             public string name;
             public int cost = 10;
-            public int amount = 1;
+            public int amount = 10;
             public List<string> prefabs;
 
             public TreeConfig(string name, List<string> prefabs)
@@ -203,7 +203,7 @@ namespace Oxide.Plugins
                 return;
             }
 
-            Item item = CreateItem(tree.name);
+            Item item = CreateItem(tree.name, tree.amount);
             if (item == null)
             {
                 player.ChatMessage(Lang("Error", player.UserIDString));
@@ -272,12 +272,11 @@ namespace Oxide.Plugins
             }
         }
 
-        Item CreateItem(string treeType)
+        Item CreateItem(string treeType, int treeAmount = 1)
         {
-            Item item = ItemManager.CreateByName("clone.hemp", 1);
+            Item item = ItemManager.CreateByName("clone.hemp", treeAmount);
             item.name = treeType;
             item.info.stackable = 1;
-
             return item;
         }
 

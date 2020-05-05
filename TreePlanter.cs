@@ -14,13 +14,14 @@ namespace Oxide.Plugins
 
         #region Fields
         const string _permUse = "treeplanter.use";
-        ConfigData _config;
+
+        PluginConfig _config;
         #endregion
 
         #region Config
-        ConfigData GetDefaultConfig()
+        PluginConfig GetDefaultConfig()
         {
-            return new ConfigData {
+            return new PluginConfig {
                 UseServerRewards = true,
                 UseEconomics = false,
                 UseCurrency = false,
@@ -61,7 +62,7 @@ namespace Oxide.Plugins
             };
         }
 
-        class ConfigData
+        class PluginConfig
         {
             public bool UseServerRewards;
             public bool UseEconomics;
@@ -114,7 +115,7 @@ namespace Oxide.Plugins
 
         void Init()
         {
-            _config = Config.ReadObject<ConfigData>();
+            _config = Config.ReadObject<PluginConfig>();
         }
 
         object OnMeleeAttack(BasePlayer player, HitInfo info)

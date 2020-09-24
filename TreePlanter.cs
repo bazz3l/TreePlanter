@@ -5,26 +5,28 @@ using Oxide.Core.Plugins;
 
 namespace Oxide.Plugins
 {
-    [Info("Tree Planter", "Bazz3l", "1.1.2")]
+    [Info("Tree Planter", "Bazz3l", "1.1.3")]
     [Description("Buy and plant trees in building authed areas using in-game currency.")]
-    class TreePlanter : RustPlugin
+    public class TreePlanter : RustPlugin
     {
-        [PluginReference]
-        Plugin ServerRewards, Economics;
+        [PluginReference] Plugin ServerRewards, Economics;
 
         #region Fields
-        const string _permUse = "treeplanter.use";
-
-        PluginConfig _config;
+        
+        private const string PermUse = "treeplanter.use";
+        
+        private ConfigData _config;
+        
         #endregion
 
         #region Config
-        PluginConfig GetDefaultConfig()
+        
+        private ConfigData GetDefaultConfig()
         {
-            return new PluginConfig {
-                UseServerRewards = true,
+            return new ConfigData {
+                UseServerRewards = false,
                 UseEconomics = false,
-                UseCurrency = false,
+                UseCurrency = true,
                 OwnerOnly = false,
                 CurrencyItemID = -932201673,
                 Items = new List<TreeConfig> {
@@ -62,7 +64,7 @@ namespace Oxide.Plugins
             };
         }
 
-        class PluginConfig
+        private class ConfigData
         {
             public bool UseServerRewards;
             public bool UseEconomics;
@@ -74,22 +76,26 @@ namespace Oxide.Plugins
             public TreeConfig FindItemByName(string name) => Items.Find(x => x.Name == name);
         }
 
-        class TreeConfig
+        private class TreeConfig
         {
             public string Name;
-            public int Cost = 10;
-            public int Amount = 1;
+            public int Cost;
+            public int Amount;
             public List<string> Prefabs;
 
             public TreeConfig(string name, List<string> prefabs)
             {
                 Name = name;
                 Prefabs = prefabs;
+                Cost = 10;
+                Amount = 1;
             }
         }
+        
         #endregion
 
         #region Oxide
+        
         protected override void LoadDefaultConfig() => Config.WriteObject(GetDefaultConfig(), true);
 
         protected override void LoadDefaultMessages()
@@ -97,6 +103,7 @@ namespace Oxide.Plugins
             lang.RegisterMessages(new Dictionary<string, string> {
                 {"Prefix", "<color=#DC143C>Tree Planter</color>:"},
                 {"NoPermission", "No permission"},
+                {"NotEnoughSpace", "You do not have enough inventory space."},
                 {"Balance", "You do not have enough for that."},
                 {"Planted", "You planted a tree."},
                 {"Authed", "You must have build privlage."},
@@ -108,26 +115,25 @@ namespace Oxide.Plugins
             }, this);
         }
 
-        void OnServerInitialized()
+        private void OnServerInitialized()
         {
-            permission.RegisterPermission(_permUse, this);
+            permission.RegisterPermission(PermUse, this);
         }
 
-        void Init()
+        private void Init()
         {
-            _config = Config.ReadObject<PluginConfig>();
+            _config = Config.ReadObject<ConfigData>();
         }
 
-        object OnMeleeAttack(BasePlayer player, HitInfo info)
+        private object OnMeleeAttack(BasePlayer player, HitInfo info)
         {
-            BaseEntity ent = info?.HitEntity;
-
-            if (ent == null || ent.OwnerID == 0UL || !IsTree(ent.ShortPrefabName))
+            BaseEntity entity = info?.HitEntity;
+            if (entity == null || !IsTree(entity.ShortPrefabName))
             {
                 return null;
             }
 
-            if (_config.OwnerOnly && !IsOwner(player.userID, ent.OwnerID))
+            if (_config.OwnerOnly && !IsOwner(player.userID, entity.OwnerID))
             {
                 info.damageTypes.ScaleAll(0.0f);
 
@@ -137,15 +143,15 @@ namespace Oxide.Plugins
             return null;
         }
 
-        void OnEntityBuilt(Planner plan, GameObject seed)
+        private void OnEntityBuilt(Planner plan, GameObject go)
         {
             BasePlayer player = plan.GetOwnerPlayer();
-            if (player == null || !permission.UserHasPermission(player.UserIDString, _permUse))
+            if (!HasPermission(player))
             {
                 return;
             }
 
-            GrowableEntity plant = seed.GetComponent<GrowableEntity>();
+            GrowableEntity plant = go.GetComponent<GrowableEntity>();
             if (plant == null)
             {
                 return;
@@ -167,8 +173,7 @@ namespace Oxide.Plugins
                 if (plant.GetParentEntity() is PlanterBox)
                 {
                     RefundItem(player, item.name);
-
-                    plant?.Kill(BaseNetworkable.DestroyMode.None);
+                    RemoveEntity(plant);
 
                     player.ChatMessage(Lang("Planter", player.UserIDString));
                     return;
@@ -177,8 +182,7 @@ namespace Oxide.Plugins
                 if (!player.IsBuildingAuthed())
                 {
                     RefundItem(player, item.name);
-
-                    plant?.Kill(BaseNetworkable.DestroyMode.None);
+                    RemoveEntity(plant);
 
                     player.ChatMessage(Lang("Authed", player.UserIDString));
                     return;
@@ -187,11 +191,141 @@ namespace Oxide.Plugins
                 PlantTree(player, plant, tree.Prefabs.GetRandom());
             });
         }
+        
+        #endregion
 
-        [ChatCommand("tree")]
-        void BuyCommand(BasePlayer player, string cmd, string[] args)
+        #region Core
+        
+        private void PlantTree(BasePlayer player, GrowableEntity plant, string prefabName)
         {
-            if (!permission.UserHasPermission(player.UserIDString, _permUse))
+            BaseEntity entity = GameManager.server.CreateEntity(prefabName, plant.transform.position, Quaternion.identity);
+            if (entity == null)
+            {
+                return;
+            }
+
+            entity.OwnerID = player.userID;
+            entity.Spawn();
+
+            RemoveEntity(plant);
+
+            player.ChatMessage(Lang("Planted", player.UserIDString));
+        }
+
+        private bool CheckBalance(BasePlayer player, int cost)
+        {
+            if (_config.UseServerRewards && ServerRewards)
+            {
+                return ServerRewards.Call<int>("CheckPoints", player.userID) >= cost;
+            }
+            
+            if (_config.UseEconomics && Economics)
+            {
+                return Economics.Call<double>("Balance", player.userID) >= (double) cost;
+            }
+            
+            if (_config.UseCurrency)
+            {
+                return player.inventory.GetAmount(_config.CurrencyItemID) >= cost;
+            }
+
+            return false;
+        }
+
+        private void BalanceTake(BasePlayer player, int cost)
+        {
+            if (_config.UseServerRewards && ServerRewards)
+            {
+                ServerRewards.Call<object>("TakePoints", player.userID, cost, null);
+            }
+            
+            if (_config.UseEconomics && Economics)
+            {
+                Economics.Call<object>("Withdraw", player.userID, (double) cost);
+            }
+            
+            if (_config.UseCurrency)
+            {
+                player.inventory.Take(new List<Item>(), _config.CurrencyItemID, cost);
+            }
+        }
+
+        private static Item CreateItem(string treeType, int treeAmount = 1)
+        {
+            Item item = ItemManager.CreateByName("clone.hemp", treeAmount);
+            item.name = treeType;
+            item.info.stackable = 1;
+            
+            return item;
+        }
+
+        private void RefundItem(BasePlayer player, string treeType)
+        {
+            Item refundItem = CreateItem(treeType);
+            if (refundItem == null)
+            {
+                player.ChatMessage(Lang("Error", player.UserIDString));
+                return;
+            }
+
+            player.GiveItem(refundItem);
+        }
+
+        private static void RemoveEntity(GrowableEntity plant)
+        {
+            if (plant != null && !plant.IsDestroyed)
+            {
+                plant.Kill();
+            }
+        }
+
+        private static bool IsOwner(ulong userID, ulong ownerID)
+        {
+            return userID == ownerID;
+        }
+
+        private static bool IsTree(string prefab)
+        {
+            if (prefab.Contains("oak_") 
+            || prefab.Contains("birch_") 
+            || prefab.Contains("douglas_") 
+            || prefab.Contains("swamp_") 
+            || prefab.Contains("palm_") 
+            || prefab.Contains("pine_"))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool NotEnoughSpace(BasePlayer player)
+        {
+            return player.inventory.containerMain.IsFull() && player.inventory.containerBelt.IsFull();
+        }
+
+        private void ListTypes(BasePlayer player)
+        {
+            StringBuilder sb = new StringBuilder();
+
+            sb.Append(Lang("Prefix", player.UserIDString));
+
+            foreach (TreeConfig tc in _config.Items)
+            {
+                sb.Append(Lang("Cost", player.UserIDString, tc.Name, tc.Cost));
+            }
+
+            player.ChatMessage(sb.ToString());
+        }
+
+        #endregion
+
+        #region Commands
+        
+        [ChatCommand("tree")]
+        private void BuyCommand(BasePlayer player, string command, string[] args)
+        {
+            if (!HasPermission(player))
             {
                 player.ChatMessage(Lang("NoPermission", player.UserIDString));
                 return;
@@ -199,16 +333,7 @@ namespace Oxide.Plugins
 
             if (args.Length != 1)
             {
-                StringBuilder sb = new StringBuilder();
-
-                sb.Append(Lang("Prefix", player.UserIDString));
-
-                foreach (TreeConfig tc in _config.Items)
-                {
-                    sb.Append(Lang("Cost", player.UserIDString, tc.Name, tc.Cost));
-                }
-
-                player.ChatMessage(sb.ToString());
+                ListTypes(player);
                 return;
             }
 
@@ -216,6 +341,12 @@ namespace Oxide.Plugins
             if (tree == null)
             {
                 player.ChatMessage(Lang("Invalid", player.UserIDString));
+                return;
+            }
+            
+            if (NotEnoughSpace(player))
+            {
+                player.ChatMessage(Lang("NotEnoughSpace", player.UserIDString));
                 return;
             }
 
@@ -238,107 +369,14 @@ namespace Oxide.Plugins
 
             player.ChatMessage(Lang("Given", player.UserIDString, tree.Amount, tree.Name));
         }
+        
         #endregion
-
-        #region Core
-        void PlantTree(BasePlayer player, GrowableEntity plant, string prefabName)
-        {
-            BaseEntity entity = GameManager.server.CreateEntity(prefabName, plant.transform.position, Quaternion.identity);
-            if (entity == null)
-            {
-                return;
-            }
-
-            entity.OwnerID = player.userID;
-            entity.Spawn();
-
-            plant?.Kill();
-
-            player.ChatMessage(Lang("Planted", player.UserIDString));
-        }
-
-        bool CheckBalance(BasePlayer player, int cost)
-        {
-            if (_config.UseServerRewards && ServerRewards?.Call<int>("CheckPoints", player.userID) >= cost)
-            {
-                return true;
-            }
-
-            if (_config.UseEconomics && Economics?.Call<double>("Balance", player.userID) >= (double) cost)
-            {
-                return true;
-            }
-
-            if (_config.UseCurrency && player.inventory.GetAmount(_config.CurrencyItemID) >= cost)
-            {
-                return true;
-            }
-
-            return false;
-        }
-
-        void BalanceTake(BasePlayer player, int cost)
-        {
-            if (_config.UseServerRewards)
-            {
-                ServerRewards?.Call<object>("TakePoints", player.userID, cost, null);
-            }
-
-            if (_config.UseEconomics)
-            {
-                Economics?.Call<object>("Withdraw", player.userID, (double) cost);
-            }
-
-            if (_config.UseCurrency)
-            {
-                player.inventory.Take(new List<Item>(), _config.CurrencyItemID, cost);
-            }
-        }
-
-        Item CreateItem(string treeType, int treeAmount = 1)
-        {
-            Item item = ItemManager.CreateByName("clone.hemp", treeAmount);
-            item.name = treeType;
-            item.info.stackable = 1;
-            return item;
-        }
-
-        void RefundItem(BasePlayer player, string treeType)
-        {
-            Item refundItem = CreateItem(treeType);
-
-            if (refundItem == null)
-            {
-                player.ChatMessage(Lang("Error", player.UserIDString));
-                return;
-            }
-
-            player.GiveItem(refundItem);
-        }
-
-        bool IsOwner(ulong userID, ulong ownerID)
-        {
-            return userID == ownerID;
-        }
-
-        bool IsTree(string prefab)
-        {
-            if (prefab.Contains("oak_") 
-            || prefab.Contains("birch_") 
-            || prefab.Contains("douglas_") 
-            || prefab.Contains("swamp_") 
-            || prefab.Contains("palm_") 
-            || prefab.Contains("pine_"))
-            {
-                return true;
-            }
-
-            return false;
-        }
-        #endregion
-
+        
         #region Helpers
-        string Lang(string key, string id = null, params object[] args) => string.Format(lang.GetMessage(key, this, id), args);
+        private string Lang(string key, string id = null, params object[] args) => string.Format(lang.GetMessage(key, this, id), args);
+
+        private bool HasPermission(BasePlayer player) => permission.UserHasPermission(player.UserIDString, PermUse);
+
         #endregion
     }
 }

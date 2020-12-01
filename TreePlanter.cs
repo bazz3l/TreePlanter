@@ -11,7 +11,7 @@ namespace Oxide.Plugins
     [Description("Buy and plant trees in building authed areas using in-game currency.")]
     public class TreePlanter : RustPlugin
     {
-        [PluginReference] Plugin ServerRewards, Economics;
+        [PluginReference] Plugin ServerRewards, Economics, Clans;
 
         #region Fields
         
@@ -54,9 +54,25 @@ namespace Oxide.Plugins
                 UseServerRewards = false,
                 UseEconomics = false,
                 UseCurrency = true,
-                OwnerOnly = false,
-                CurrencyItemID = -932201673,
-                Items = new List<TreeConfig> {
+                EnableOwner = false,
+                EnableClan = false,
+                CurrencyItem = -932201673,
+                AgriBlockTypes = new Dictionary<string, bool>
+                {
+                    {"seed.black.berry", true},
+                    {"seed.blue.berry", true},
+                    {"seed.green.berry", true},
+                    {"seed.yellow.berry", true},
+                    {"seed.white.berry", true},
+                    {"seed.red.berry", true},
+                    {"seed.corn", true},
+                    {"clone.corn", true},
+                    {"seed.pumpkin", true},
+                    {"clone.pumpkin", true},
+                    {"seed.hemp", true},
+                    { "clone.hemp", true}
+                },
+                TreeItems = new List<TreeConfig> {
                     new TreeConfig("oak", new List<string> {
                         "assets/bundled/prefabs/autospawn/resource/v2_temp_field_large/oak_a.prefab",
                         "assets/bundled/prefabs/autospawn/resource/v2_temp_field_large/oak_b.prefab",
@@ -93,14 +109,31 @@ namespace Oxide.Plugins
 
         private class PluginConfig
         {
+            [JsonProperty("UseServerRewards (use server rewards as currency)")]
             public bool UseServerRewards;
+            
+            [JsonProperty("UseEconomics (use economics as currency)")]
             public bool UseEconomics;
+            
+            [JsonProperty("UseCurrency (use custom items as currency, by specifying the CurrencyItem)")]
             public bool UseCurrency;
-            public bool OwnerOnly;
-            public int CurrencyItemID;
-            public List<TreeConfig> Items;
+            
+            [JsonProperty("CurrencyItem (set an item id to use as currency, default is set to scrap)")]
+            public int CurrencyItem;
+            
+            [JsonProperty("EnableOwner (enables owners to chop down trees)")]
+            public bool EnableOwner;
+            
+            [JsonProperty("EnableClan (enables clan members to chop down trees)")]
+            public bool EnableClan;
 
-            public TreeConfig FindItemByName(string name) => Items.Find(x => x.Name == name);
+            [JsonProperty("AgriBlockTypes (specify which items should only be placed in a planter box)")]
+            public Dictionary<string, bool> AgriBlockTypes;
+            
+            [JsonProperty("TreeItems (specify a list of tree items to buy)")]
+            public List<TreeConfig> TreeItems;
+
+            public TreeConfig FindItemByName(string name) => TreeItems.Find(x => x.Name == name);
         }
 
         private class TreeConfig
@@ -116,7 +149,7 @@ namespace Oxide.Plugins
                 Prefabs = prefabs;
             }
         }
-        
+
         #endregion
 
         #region Lang
@@ -128,8 +161,9 @@ namespace Oxide.Plugins
                 {"NoPermission", "Unknown command: tree"},
                 {"Authed", "You must have build privilege."},
                 {"Balance", "You do not have enough for that."},
-                {"Planted", "You've successfully planted a tree."},
-                {"Planter", "Sorry, must be planted in the ground ."},
+                {"Planter", "Sorry, must be planted in a planter."},
+                {"Ground", "Sorry, must be planted in the ground."},
+                {"Planted", "<color=#ffc55c>{0}</color> was successfully planted."},
                 {"Received", "You've purchased <color=#ffc55c>{0}x</color> <color=#ffc55c>{1}</color>."},
                 {"TreeItem", "\n<color=#ffc55c>{0}</color> cost <color=#ffc55c>${1}</color>."},
                 {"NotFound", "Sorry, item not found."},
@@ -148,7 +182,7 @@ namespace Oxide.Plugins
 
         private object OnEntityAttack(BaseEntity entity, HitInfo info)
         {
-            if (entity == null || info?.InitiatorPlayer == null || !_config.OwnerOnly)
+            if (entity == null || info?.Initiator == null || entity.OwnerID == 0)
             {
                 return null;
             }
@@ -158,127 +192,121 @@ namespace Oxide.Plugins
                 return null;
             }
 
-            BasePlayer attacker = info.InitiatorPlayer;
-            if (attacker == null)
+            BasePlayer player = info.Initiator as BasePlayer;
+            if (player  == null)
             {
                 return null;
             }
             
-            if (entity.OwnerID != 0 && !IsOwner(entity.OwnerID, attacker.userID))
+            if (IsOwner(entity.OwnerID, player .userID))
             {
-                info.damageTypes  = new DamageTypeList();
-                info.DoHitEffects = false;
-
-                return false;
+                return null;
             }
 
-            return null;
+            return false;
         }
 
         private void OnEntityBuilt(Planner plan, GameObject seed)
         {
             BasePlayer player = plan.GetOwnerPlayer();
-
+            
             if (player == null || !permission.UserHasPermission(player.UserIDString, PermUse))
             {
                 return;
             }
 
-            GrowableEntity plant = seed.GetComponent<GrowableEntity>();
-            if (plant == null)
+            GrowableEntity growableEntity = seed.GetComponent<GrowableEntity>();
+            if (growableEntity == null)
             {
                 return;
             }
-
+            
             Item item = player.GetActiveItem();
             if (item == null)
             {
                 return;
             }
 
-            TreeConfig treeConfig = _config.FindItemByName(item.name);
-            if (treeConfig == null)
-            {
-                return;
-            }
-
             NextTick(() => {
-                if (plant.GetParentEntity() is PlanterBox)
+                TreeConfig treeConfig = _config.FindItemByName(item.name);
+                if (treeConfig != null)
                 {
-                    RefundItem(player, item.name);
-                    
-                    KillSeed(plant);
-
-                    player.ChatMessage(Lang("Planter", player.UserIDString));
+                    TryPlantTree(player, item, growableEntity, treeConfig);
                     
                     return;
                 }
                 
-                if (!player.IsBuildingAuthed())
+                if (growableEntity.GetParentEntity() is PlanterBox)
                 {
-                    RefundItem(player, item.name);
-
-                    KillSeed(plant);
-
-                    player.ChatMessage(Lang("Authed", player.UserIDString));
-                    
                     return;
                 }
                 
-                PlantTree(player, plant, treeConfig.Prefabs.GetRandom());
-
-                KillSeed(plant);
-
-                player.ChatMessage(Lang("Planted", player.UserIDString));
+                TryPlantSeed(player, item, growableEntity);
             });
         }
 
         #endregion
 
-        #region Command
-        
-        [ChatCommand("tree")]
-        private void BuyCommand(BasePlayer player, string cmd, string[] args)
+        #region Core
+
+        private void TryPlantTree(BasePlayer player, Item item, GrowableEntity growableEntity, TreeConfig treeConfig)
         {
-            if (!permission.UserHasPermission(player.UserIDString, PermUse))
+            if (player == null || item == null)
             {
-                player.ChatMessage(Lang("NoPermission", player.UserIDString));
-                return;
-            }
-
-            if (args.Length != 1)
-            {
-                ListItems(player);
-                return;
-            }
-
-            TreeConfig treeConfig = _config.FindItemByName(string.Join(" ", args));
-            if (treeConfig == null)
-            {
-                player.ChatMessage(Lang("NotFound", player.UserIDString));
-                return;
-            }
-
-            if (!Withdraw(player, treeConfig.Cost))
-            {
-                player.ChatMessage(Lang("Balance", player.UserIDString));
                 return;
             }
             
-            player.GiveItem(CreateItem(treeConfig.Name, treeConfig.Amount));
+            if (growableEntity.GetParentEntity() is PlanterBox)
+            {
+                RefundItem(player, item.name);
 
-            player.ChatMessage(Lang("Received", player.UserIDString, treeConfig.Amount, treeConfig.Name));
+                KillSeed(growableEntity);
+
+                player.ChatMessage(Lang("Ground", player.UserIDString));
+                return;
+            }
+
+            if (!player.IsBuildingAuthed())
+            {
+                RefundItem(player, item.name);
+
+                KillSeed(growableEntity);
+
+                player.ChatMessage(Lang("Authed", player.UserIDString));
+                return;
+            }
+            
+            KillSeed(growableEntity);
+
+            PlantTree(player, growableEntity, treeConfig.Prefabs.GetRandom());
+
+            player.ChatMessage(Lang("Planted", player.UserIDString, item.name.TitleCase()));
         }
-        
-        #endregion
 
-        #region Core
+        private void TryPlantSeed(BasePlayer player, Item item, GrowableEntity growableEntity)
+        {
+            if (player == null || item == null)
+            {
+                return;
+            }
+
+            if (IsBlockedEntity(item.info.shortname))
+            {
+                return;
+            }
+
+            RefundItem(player, item, growableEntity.Genes);
+
+            KillSeed(growableEntity);
+            
+            player.ChatMessage(Lang("Planter", player.UserIDString));
+        }
 
         private void ListItems(BasePlayer player)
         {
             StringBuilder sb = new StringBuilder();
 
-            foreach (TreeConfig tc in _config.Items)
+            foreach (TreeConfig tc in _config.TreeItems)
             {
                 sb.Append(Lang("TreeItem", player.UserIDString, tc.Name, tc.Cost));
             }
@@ -325,9 +353,9 @@ namespace Oxide.Plugins
                 return Economics.Call<bool>("Withdraw", player.userID, (double) treeCoat);
             }
 
-            if (_config.UseCurrency && player.inventory.GetAmount(_config.CurrencyItemID) >= treeCoat)
+            if (_config.UseCurrency && player.inventory.GetAmount(_config.CurrencyItem) >= treeCoat)
             {
-                player.inventory.Take(null, _config.CurrencyItemID, treeCoat);
+                player.inventory.Take(null, _config.CurrencyItem, treeCoat);
                 
                 return true;
             }
@@ -343,15 +371,22 @@ namespace Oxide.Plugins
             
             return item;
         }
+        
+        private void RefundItem(BasePlayer player, Item item, GrowableGenes growableGenes)
+        {
+            Item refund = ItemManager.CreateByName(item.info.shortname, 1);
+            refund.instanceData = new ProtoBuf.Item.InstanceData { };
+            refund.instanceData.dataInt = GrowableGeneEncoding.EncodeGenesToInt(growableGenes);
+
+            player.GiveItem(refund);
+        }
 
         private void RefundItem(BasePlayer player, string treeType)
         {
             Item refundItem = CreateItem(treeType);
-            
             if (refundItem == null)
             {
                 player.ChatMessage(Lang("Error", player.UserIDString));
-                
                 return;
             }
 
@@ -360,7 +395,22 @@ namespace Oxide.Plugins
 
         private bool IsOwner(ulong userID, ulong ownerID)
         {
-            return userID == ownerID;
+            if (_config.EnableClan && InSameClan(userID, ownerID))
+            {
+                return true;
+            }
+            
+            if (_config.EnableOwner && userID == ownerID)
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool IsBlockedEntity(string shortname)
+        {
+            return _config.AgriBlockTypes.ContainsKey(shortname) && !_config.AgriBlockTypes[shortname];
         }
 
         private bool IsTreeEntity(string prefab)
@@ -378,15 +428,69 @@ namespace Oxide.Plugins
             return false;
         }
         
+        private bool InSameClan(ulong userID, ulong targetID)
+        {
+            string playerClan = Clans?.Call<string>("GetClanOf", userID);
+            string targetClan = Clans?.Call<string>("GetClanOf", targetID);
+            if (string.IsNullOrEmpty(targetClan) || string.IsNullOrEmpty(playerClan))
+            {
+                return false;
+            }
+
+            return playerClan == targetClan;
+        }
+        
         #endregion
 
+        #region Command
+        
+        [ChatCommand("tree")]
+        private void BuyCommand(BasePlayer player, string cmd, string[] args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, PermUse))
+            {
+                player.ChatMessage(Lang("NoPermission", player.UserIDString));
+                return;
+            }
+
+            if (args.Length != 1)
+            {
+                ListItems(player);
+                return;
+            }
+
+            TreeConfig treeConfig = _config.FindItemByName(string.Join(" ", args));
+            if (treeConfig == null)
+            {
+                player.ChatMessage(Lang("NotFound", player.UserIDString));
+                return;
+            }
+
+            if (!Withdraw(player, treeConfig.Cost))
+            {
+                player.ChatMessage(Lang("Balance", player.UserIDString));
+                return;
+            }
+            
+            player.GiveItem(CreateItem(treeConfig.Name, treeConfig.Amount));
+
+            player.ChatMessage(Lang("Received", player.UserIDString, treeConfig.Amount, treeConfig.Name));
+        }
+        
+        #endregion
+        
         #region Helpers
         
         private string Lang(string key, string id = null, params object[] args) => string.Format(lang.GetMessage(key, this, id), args);
 
         private bool IsValid(BaseEntity entity)
         {
-            return entity != null && !entity.IsDestroyed;
+            if (entity == null || entity.IsDestroyed)
+            {
+                return false;
+            }
+            
+            return true;
         }
         
         #endregion

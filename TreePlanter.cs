@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using Oxide.Core.Plugins;
 using Newtonsoft.Json;
@@ -6,23 +7,23 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Tree Planter", "Bazz3l", "1.1.4")]
+    [Info("Tree Planter", "Bazz3l", "1.1.5")]
     [Description("Buy and plant trees in building authed areas using in-game currency.")]
     public class TreePlanter : RustPlugin
     {
         [PluginReference] Plugin ServerRewards, Economics, Clans;
 
         #region Fields
-        
+
         private const string PermUse = "treeplanter.use";
 
         private PluginConfig _config;
-        
+
         #endregion
 
         #region Config
-        
-        protected override void LoadDefaultConfig() => _config = GetDefaultConfig();
+
+        protected override void LoadDefaultConfig() => _config = PluginConfig.DefaultConfig();
 
         protected override void LoadConfig()
         {
@@ -36,116 +37,174 @@ namespace Oxide.Plugins
                 {
                     throw new JsonException();
                 }
+                
+                if (_config.ToDictionary().Keys.SequenceEqual(Config.ToDictionary(x => x.Key, x => x.Value).Keys)) return;
+                
+                PrintWarning("Loaded updated config.");
+                    
+                SaveConfig();
             }
             catch
             {
-                LoadDefaultConfig();
+                PrintWarning("Loaded default config.");
 
-                PrintError("Config file contains an error and has been replaced with the default file.");
+                LoadDefaultConfig();
             }
         }
 
         protected override void SaveConfig() => Config.WriteObject(_config, true);
-        
-        private PluginConfig GetDefaultConfig()
-        {
-            return new PluginConfig {
-                UseServerRewards = false,
-                UseEconomics = false,
-                UseCurrency = true,
-                EnableOwner = false,
-                EnableClan = false,
-                CurrencyItem = -932201673,
-                AgriBlockTypes = new Dictionary<string, bool>
-                {
-                    {"seed.black.berry", true},
-                    {"seed.blue.berry", true},
-                    {"seed.green.berry", true},
-                    {"seed.yellow.berry", true},
-                    {"seed.white.berry", true},
-                    {"seed.red.berry", true},
-                    {"seed.corn", true},
-                    {"clone.corn", true},
-                    {"seed.pumpkin", true},
-                    {"clone.pumpkin", true},
-                    {"seed.hemp", true},
-                    { "clone.hemp", true}
-                },
-                TreeItems = new List<TreeConfig> {
-                    new TreeConfig("oak", new List<string> {
-                        "assets/bundled/prefabs/autospawn/resource/v2_temp_field_large/oak_a.prefab",
-                        "assets/bundled/prefabs/autospawn/resource/v2_temp_field_large/oak_b.prefab",
-                        "assets/bundled/prefabs/autospawn/resource/v2_temp_field_large/oak_c.prefab"
-                    }),
-                    new TreeConfig("birch", new List<string> {
-                        "assets/bundled/prefabs/autospawn/resource/v2_temp_forest/birch_small_temp.prefab",
-                        "assets/bundled/prefabs/autospawn/resource/v2_temp_forest/birch_medium_temp.prefab",
-                        "assets/bundled/prefabs/autospawn/resource/v2_temp_forest/birch_large_temp.prefab"
-                    }),
-                    new TreeConfig("douglas", new List<string> {
-                        "assets/bundled/prefabs/autospawn/resource/v2_arctic_forest/douglas_fir_a_snow.prefab",
-                        "assets/bundled/prefabs/autospawn/resource/v2_arctic_forest/douglas_fir_b_snow.prefab",
-                        "assets/bundled/prefabs/autospawn/resource/v2_arctic_forest/douglas_fir_c_snow.prefab"
-                    }),
-                    new TreeConfig("swamp", new List<string> {
-                        "assets/bundled/prefabs/autospawn/resource/swamp-trees/swamp_tree_a.prefab",
-                        "assets/bundled/prefabs/autospawn/resource/swamp-trees/swamp_tree_b.prefab",
-                        "assets/bundled/prefabs/autospawn/resource/swamp-trees/swamp_tree_c.prefab"
-                    }),
-                    new TreeConfig("palm", new List<string> {
-                        "assets/bundled/prefabs/autospawn/resource/v2_arid_forest/palm_tree_small_c_entity.prefab",
-                        "assets/bundled/prefabs/autospawn/resource/v2_arid_forest/palm_tree_med_a_entity.prefab",
-                        "assets/bundled/prefabs/autospawn/resource/v2_arid_forest/palm_tree_tall_a_entity.prefab"
-                    }),
-                    new TreeConfig("pine", new List<string> {
-                        "assets/bundled/prefabs/autospawn/resource/v2_arctic_forest_snow/pine_a_snow.prefab",
-                        "assets/bundled/prefabs/autospawn/resource/v2_arctic_forest_snow/pine_b snow.prefab",
-                        "assets/bundled/prefabs/autospawn/resource/v2_arctic_forest_snow/pine_c_snow.prefab"
-                    })
-                }
-            };
-        }
 
         private class PluginConfig
         {
             [JsonProperty("UseServerRewards (use server rewards as currency)")]
             public bool UseServerRewards;
-            
+
             [JsonProperty("UseEconomics (use economics as currency)")]
             public bool UseEconomics;
-            
+
             [JsonProperty("UseCurrency (use custom items as currency, by specifying the CurrencyItem)")]
             public bool UseCurrency;
-            
+
             [JsonProperty("CurrencyItem (set an item id to use as currency, default is set to scrap)")]
             public int CurrencyItem;
-            
+
             [JsonProperty("EnableOwner (enables owners to chop down trees)")]
             public bool EnableOwner;
-            
+
             [JsonProperty("EnableClan (enables clan members to chop down trees)")]
             public bool EnableClan;
 
             [JsonProperty("AgriBlockTypes (specify which items should only be placed in a planter box)")]
             public Dictionary<string, bool> AgriBlockTypes;
-            
-            [JsonProperty("TreeItems (specify a list of tree items to buy)")]
-            public List<TreeConfig> TreeItems;
 
-            public TreeConfig FindItemByName(string name) => TreeItems.Find(x => x.Name == name);
+            [JsonProperty("TreeItems (specify a list of tree items to buy)")]
+            public Dictionary<string, TreeItem> TreeItems;
+
+            public TreeItem FindTreeItemByName(string name)
+            {
+                TreeItem treeItem;
+                return TreeItems.TryGetValue(name, out treeItem) ? treeItem : null;
+            }
+
+            public string ToJson() => JsonConvert.SerializeObject(this);
+
+            public Dictionary<string, object> ToDictionary() => JsonConvert.DeserializeObject<Dictionary<string, object>>(ToJson());
+            
+            public static PluginConfig DefaultConfig()
+            {
+                return new PluginConfig
+                {
+                    UseServerRewards = false,
+                    UseEconomics = false,
+                    UseCurrency = true,
+                    EnableOwner = false,
+                    EnableClan = false,
+                    CurrencyItem = -932201673,
+                    AgriBlockTypes = new Dictionary<string, bool>
+                    {
+                        {"seed.black.berry", true},
+                        {"seed.blue.berry", true},
+                        {"seed.green.berry", true},
+                        {"seed.yellow.berry", true},
+                        {"seed.white.berry", true},
+                        {"seed.red.berry", true},
+                        {"seed.corn", true},
+                        {"clone.corn", true},
+                        {"seed.pumpkin", true},
+                        {"clone.pumpkin", true},
+                        {"seed.hemp", true},
+                        {"clone.hemp", true}
+                    },
+                    TreeItems = new Dictionary<string, TreeItem>
+                    {
+                        {
+                            "oak", new TreeItem("oak", new List<string>
+                            {
+                                "assets/bundled/prefabs/autospawn/resource/v2_temp_field_large/oak_a.prefab",
+                                "assets/bundled/prefabs/autospawn/resource/v2_temp_field_large/oak_b.prefab",
+                                "assets/bundled/prefabs/autospawn/resource/v2_temp_field_large/oak_c.prefab"
+                            })
+                        },
+                        {
+                            "birch", new TreeItem("birch", new List<string>
+                            {
+                                "assets/bundled/prefabs/autospawn/resource/v2_temp_forest/birch_small_temp.prefab",
+                                "assets/bundled/prefabs/autospawn/resource/v2_temp_forest/birch_medium_temp.prefab",
+                                "assets/bundled/prefabs/autospawn/resource/v2_temp_forest/birch_large_temp.prefab"
+                            })
+                        },
+                        {
+                            "douglas", new TreeItem("douglas", new List<string>
+                            {
+                                "assets/bundled/prefabs/autospawn/resource/v2_arctic_forest/douglas_fir_a_snow.prefab",
+                                "assets/bundled/prefabs/autospawn/resource/v2_arctic_forest/douglas_fir_b_snow.prefab",
+                                "assets/bundled/prefabs/autospawn/resource/v2_arctic_forest/douglas_fir_c_snow.prefab"
+                            })
+                        },
+                        {
+                            "swamp", new TreeItem("swamp", new List<string>
+                            {
+                                "assets/bundled/prefabs/autospawn/resource/swamp-trees/swamp_tree_a.prefab",
+                                "assets/bundled/prefabs/autospawn/resource/swamp-trees/swamp_tree_b.prefab",
+                                "assets/bundled/prefabs/autospawn/resource/swamp-trees/swamp_tree_c.prefab"
+                            })
+                        },
+                        {
+                            "palm", new TreeItem("palm", new List<string>
+                            {
+                                "assets/bundled/prefabs/autospawn/resource/v2_arid_forest/palm_tree_small_c_entity.prefab",
+                                "assets/bundled/prefabs/autospawn/resource/v2_arid_forest/palm_tree_med_a_entity.prefab",
+                                "assets/bundled/prefabs/autospawn/resource/v2_arid_forest/palm_tree_tall_a_entity.prefab"
+                            })
+                        },
+                        {
+                            "pine", new TreeItem("pine", new List<string>
+                            {
+                                "assets/bundled/prefabs/autospawn/resource/v2_arctic_forest_snow/pine_a_snow.prefab",
+                                "assets/bundled/prefabs/autospawn/resource/v2_arctic_forest_snow/pine_b snow.prefab",
+                                "assets/bundled/prefabs/autospawn/resource/v2_arctic_forest_snow/pine_c_snow.prefab"
+                            })
+                        }
+                    }
+                };
+            }
         }
 
-        private class TreeConfig
+        private class TreeItem
         {
+            [JsonProperty("Name", Order = 0)]
             public string Name;
+            
+            [JsonProperty("Cost", Order = 1)]
             public int Cost = 10;
+            
+            [JsonProperty("Amount", Order = 2)]
             public int Amount = 1;
+            
+            [JsonProperty("Prefabs", Order = 3)]
             public readonly List<string> Prefabs;
 
-            public TreeConfig(string name, List<string> prefabs)
+            public TreeItem(string name, List<string> prefabs)
             {
                 Name = name;
                 Prefabs = prefabs;
+            }
+
+            public void GiveItem(BasePlayer player)
+            {
+                Item item = ItemManager.CreateByName("clone.hemp", Amount);
+                item.name = Name;
+                item.info.stackable = 1;
+
+                player.GiveItem(item);
+            }
+
+            public static void RefundItem(BasePlayer player, Item item, GrowableGenes growableGenes)
+            {
+                Item refund = ItemManager.CreateByName(item.info.shortname, 1);
+                refund.instanceData = new ProtoBuf.Item.InstanceData { };
+                refund.instanceData.dataInt = GrowableGeneEncoding.EncodeGenesToInt(growableGenes);
+                player.GiveItem(refund);
             }
         }
 
@@ -155,7 +214,8 @@ namespace Oxide.Plugins
 
         protected override void LoadDefaultMessages()
         {
-            lang.RegisterMessages(new Dictionary<string, string> {
+            lang.RegisterMessages(new Dictionary<string, string>
+            {
                 {"Prefix", "<color=#DC143C>Tree Planter</color>:"},
                 {"NoPermission", "Unknown command: tree"},
                 {"Authed", "You must have build privilege."},
@@ -179,125 +239,91 @@ namespace Oxide.Plugins
             permission.RegisterPermission(PermUse, this);
         }
 
-        private object OnEntityAttack(BaseEntity entity, HitInfo info)
-        {
-            if (entity == null || info?.Initiator == null || entity.OwnerID == 0)
-            {
-                return null;
-            }
-
-            if (!IsTreeEntity(entity.ShortPrefabName))
-            {
-                return null;
-            }
-
-            BasePlayer player = info.Initiator as BasePlayer;
-            if (player  == null)
-            {
-                return null;
-            }
-            
-            if (IsOwner(entity.OwnerID, player .userID))
-            {
-                return null;
-            }
-
-            return false;
-        }
-
-        private void OnEntityBuilt(Planner plan, GameObject seed)
+        private void OnEntityBuilt(Planner plan, GameObject go)
         {
             BasePlayer player = plan.GetOwnerPlayer();
-            
-            if (player == null || !permission.UserHasPermission(player.UserIDString, PermUse))
-            {
-                return;
-            }
+            if (!HasPermission(player, PermUse)) return;
 
-            GrowableEntity growableEntity = seed.GetComponent<GrowableEntity>();
-            if (growableEntity == null)
-            {
-                return;
-            }
-            
+            GrowableEntity entity = go.GetComponent<GrowableEntity>();
+            if (entity == null || entity.GetParentEntity() is PlanterBox) return;
+
             Item item = player.GetActiveItem();
-            if (item == null)
-            {
-                return;
-            }
+            if (item == null) return;
 
-            NextTick(() => {
-                TreeConfig treeConfig = _config.FindItemByName(item.name);
-                if (treeConfig != null)
+            NextTick(() =>
+            {
+                TreeItem treeItem = _config.FindTreeItemByName(item.name);
+
+                if (treeItem != null)
                 {
-                    TryPlantTree(player, item, growableEntity, treeConfig);
-                    
+                    TryPlantTree(player, item, entity, treeItem);
+
                     return;
                 }
-                
-                if (growableEntity.GetParentEntity() is PlanterBox)
-                {
-                    return;
-                }
-                
-                TryPlantSeed(player, item, growableEntity);
+
+                TryPlantSeed(player, item, entity);
             });
+        }
+
+        private object OnEntityAttack(BaseEntity entity, HitInfo info)
+        {
+            if (entity == null || info?.Initiator == null || entity.OwnerID == 0) return null;
+
+            if (!IsTreeEntity(entity.ShortPrefabName)) return null;
+
+            BasePlayer player = info.Initiator as BasePlayer;
+            if (player == null) return null;
+
+            if (IsOwner(entity.OwnerID, player.userID)) return null;
+
+            return false;
         }
 
         #endregion
 
         #region Core
 
-        private void TryPlantTree(BasePlayer player, Item item, GrowableEntity growableEntity, TreeConfig treeConfig)
+        private void TryPlantTree(BasePlayer player, Item item, GrowableEntity entity, TreeItem treeItem)
         {
-            if (player == null || item == null)
-            {
-                return;
-            }
-            
-            if (growableEntity.GetParentEntity() is PlanterBox)
-            {
-                RefundItem(player, item.name);
+            if (player == null || item == null) return;
 
-                KillSeed(growableEntity);
+            if (entity.GetParentEntity() is PlanterBox)
+            {
+                treeItem.GiveItem(player);
+
+                KillSeed(entity);
 
                 player.ChatMessage(Lang("Ground", player.UserIDString));
+
                 return;
             }
 
             if (!player.IsBuildingAuthed())
             {
-                RefundItem(player, item.name);
+                treeItem.GiveItem(player);
 
-                KillSeed(growableEntity);
+                KillSeed(entity);
 
                 player.ChatMessage(Lang("Authed", player.UserIDString));
+
                 return;
             }
-            
-            KillSeed(growableEntity);
 
-            PlantTree(player, growableEntity, treeConfig.Prefabs.GetRandom());
+            KillSeed(entity);
+
+            PlantTree(player, entity, treeItem.Prefabs.GetRandom());
 
             player.ChatMessage(Lang("Planted", player.UserIDString, item.name.TitleCase()));
         }
 
-        private void TryPlantSeed(BasePlayer player, Item item, GrowableEntity growableEntity)
+        private void TryPlantSeed(BasePlayer player, Item item, GrowableEntity entity)
         {
-            if (player == null || item == null)
-            {
-                return;
-            }
+            if (player == null || item == null || IsBlockedEntity(item.info.shortname)) return;
 
-            if (IsBlockedEntity(item.info.shortname))
-            {
-                return;
-            }
+            TreeItem.RefundItem(player, item, entity.Genes);
 
-            RefundItem(player, item, growableEntity.Genes);
+            KillSeed(entity);
 
-            KillSeed(growableEntity);
-            
             player.ChatMessage(Lang("Planter", player.UserIDString));
         }
 
@@ -305,9 +331,9 @@ namespace Oxide.Plugins
         {
             StringBuilder sb = new StringBuilder();
 
-            foreach (TreeConfig tc in _config.TreeItems)
+            foreach (TreeItem treeItem in _config.TreeItems.Values)
             {
-                sb.Append(Lang("TreeItem", player.UserIDString, tc.Name, tc.Cost));
+                sb.Append(Lang("TreeItem", player.UserIDString, treeItem.Name, treeItem.Cost));
             }
 
             player.ChatMessage(Lang("Prefix", player.UserIDString) + sb);
@@ -316,6 +342,7 @@ namespace Oxide.Plugins
         private void PlantTree(BasePlayer player, GrowableEntity plant, string prefabName)
         {
             BaseEntity entity = GameManager.server.CreateEntity(prefabName, plant.ServerPosition, Quaternion.identity);
+
             if (entity == null)
             {
                 return;
@@ -324,14 +351,11 @@ namespace Oxide.Plugins
             entity.OwnerID = player.userID;
             entity.Spawn();
         }
-        
+
         private void KillSeed(GrowableEntity plant)
         {
-            if (!IsValid(plant))
-            {
-                return;
-            }
-            
+            if (!IsValid(plant)) return;
+
             plant.Kill();
         }
 
@@ -341,7 +365,7 @@ namespace Oxide.Plugins
             {
                 return true;
             }
-            
+
             if (_config.UseServerRewards && ServerRewards != null)
             {
                 return ServerRewards.Call<object>("TakePoints", player.userID, treeCoat) != null;
@@ -355,56 +379,18 @@ namespace Oxide.Plugins
             if (_config.UseCurrency && player.inventory.GetAmount(_config.CurrencyItem) >= treeCoat)
             {
                 player.inventory.Take(null, _config.CurrencyItem, treeCoat);
-                
+
                 return true;
             }
 
             return false;
-        }
-
-        private Item CreateItem(string treeType, int treeAmount = 1)
-        {
-            Item item = ItemManager.CreateByName("clone.hemp", treeAmount);
-            item.name = treeType;
-            item.info.stackable = 1;
-            
-            return item;
-        }
-        
-        private void RefundItem(BasePlayer player, Item item, GrowableGenes growableGenes)
-        {
-            Item refund = ItemManager.CreateByName(item.info.shortname, 1);
-            refund.instanceData = new ProtoBuf.Item.InstanceData { };
-            refund.instanceData.dataInt = GrowableGeneEncoding.EncodeGenesToInt(growableGenes);
-
-            player.GiveItem(refund);
-        }
-
-        private void RefundItem(BasePlayer player, string treeType)
-        {
-            Item refundItem = CreateItem(treeType);
-            if (refundItem == null)
-            {
-                player.ChatMessage(Lang("Error", player.UserIDString));
-                return;
-            }
-
-            player.GiveItem(refundItem);
         }
 
         private bool IsOwner(ulong userID, ulong ownerID)
         {
-            if (_config.EnableClan && InSameClan(userID, ownerID))
-            {
-                return true;
-            }
-            
-            if (_config.EnableOwner && userID == ownerID)
-            {
-                return true;
-            }
+            if (_config.EnableClan && InSameClan(userID, ownerID)) return true;
 
-            return false;
+            return _config.EnableOwner && userID == ownerID;
         }
 
         private bool IsBlockedEntity(string shortname)
@@ -415,81 +401,96 @@ namespace Oxide.Plugins
         private bool IsTreeEntity(string prefab)
         {
             if (prefab.Contains("oak_")
-            || prefab.Contains("birch_")
-            || prefab.Contains("douglas_")
-            || prefab.Contains("swamp_")
-            || prefab.Contains("palm_")
-            || prefab.Contains("pine_"))
+                || prefab.Contains("birch_")
+                || prefab.Contains("douglas_")
+                || prefab.Contains("swamp_")
+                || prefab.Contains("palm_")
+                || prefab.Contains("pine_"))
             {
                 return true;
             }
 
             return false;
         }
-        
-        private bool InSameClan(ulong userID, ulong targetID)
-        {
-            string playerClan = Clans?.Call<string>("GetClanOf", userID);
-            string targetClan = Clans?.Call<string>("GetClanOf", targetID);
-            if (string.IsNullOrEmpty(targetClan) || string.IsNullOrEmpty(playerClan))
-            {
-                return false;
-            }
 
-            return playerClan == targetClan;
-        }
-        
         #endregion
 
         #region Command
-        
+
         [ChatCommand("tree")]
-        private void BuyCommand(BasePlayer player, string cmd, string[] args)
+        private void TreeCommand(BasePlayer player, string command, string[] args)
         {
-            if (!permission.UserHasPermission(player.UserIDString, PermUse))
+            if (!HasPermission(player, PermUse))
             {
                 player.ChatMessage(Lang("NoPermission", player.UserIDString));
+
                 return;
             }
 
             if (args.Length != 1)
             {
                 ListItems(player);
+
                 return;
             }
 
-            TreeConfig treeConfig = _config.FindItemByName(string.Join(" ", args));
-            if (treeConfig == null)
+            TreeItem treeItem = _config.FindTreeItemByName(string.Join(" ", args));
+
+            if (treeItem == null)
             {
                 player.ChatMessage(Lang("NotFound", player.UserIDString));
+
                 return;
             }
 
-            if (!Withdraw(player, treeConfig.Cost))
+            if (!Withdraw(player, treeItem.Cost))
             {
                 player.ChatMessage(Lang("Balance", player.UserIDString));
+
                 return;
             }
-            
-            player.GiveItem(CreateItem(treeConfig.Name, treeConfig.Amount));
 
-            player.ChatMessage(Lang("Received", player.UserIDString, treeConfig.Amount, treeConfig.Name));
+            treeItem.GiveItem(player);
+
+            player.ChatMessage(Lang("Received", player.UserIDString, treeItem.Amount, treeItem.Name));
+        }
+
+        #endregion
+
+        #region Helpers
+
+        private bool HasPermission(BasePlayer player, string permName)
+        {
+            return player != null && permission.UserHasPermission(player.UserIDString, permName);
+        }
+
+        private string Lang(string key, string id = null, params object[] args)
+        {
+            return string.Format(lang.GetMessage(key, this, id), args);
         }
         
-        #endregion
-        
-        #region Helpers
-        
-        private string Lang(string key, string id = null, params object[] args) => string.Format(lang.GetMessage(key, this, id), args);
-
         private bool IsValid(BaseEntity entity)
         {
-            if (entity == null || entity.IsDestroyed)
+            return entity != null && !entity.IsDestroyed;
+        }
+
+        private bool InSameClan(ulong userID, ulong targetID)
+        {
+            string playerClan = Clans?.Call<string>("GetClanOf", userID);
+
+            if (string.IsNullOrEmpty(playerClan))
             {
                 return false;
             }
             
-            return true;
+            string targetClan = Clans?.Call<string>("GetClanOf", targetID);
+
+            if (string.IsNullOrEmpty(targetClan))
+            {
+                return false;
+            }
+
+            return playerClan == targetClan;
         }
         
         #endregion
